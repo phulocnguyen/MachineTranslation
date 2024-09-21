@@ -93,27 +93,27 @@ class AttnSeq2Seq(nn.Module):
         
         return outputs
 
-# Example usage
-input_dim = 1000
-emb_dim = 256
-hidden_dim = 512
-n_layers = 2
-output_dim = 1000
+# # Example usage
+# input_dim = 1000
+# emb_dim = 256
+# hidden_dim = 512
+# n_layers = 2
+# output_dim = 1000
 
-encoder = Encoder(input_dim, emb_dim, hidden_dim, n_layers)
-decoder = Decoder(output_dim, emb_dim, hidden_dim, n_layers)
-attention = AttentionMechanism(hidden_dim)
-model = AttnSeq2Seq(encoder, decoder, attention)
+# encoder = Encoder(input_dim, emb_dim, hidden_dim, n_layers)
+# decoder = Decoder(output_dim, emb_dim, hidden_dim, n_layers)
+# attention = AttentionMechanism(hidden_dim)
+# model = AttnSeq2Seq(encoder, decoder, attention)
 
-# Define optimizer and loss function
-optimizer = optim.Adam(model.parameters())
-criterion = nn.CrossEntropyLoss()
+# # Define optimizer and loss function
+# optimizer = optim.Adam(model.parameters())
+# criterion = nn.CrossEntropyLoss()
 
-# Example forward pass
-src = torch.randint(0, input_dim, (32, 10))  # (batch_size, src_len)
-trg = torch.randint(0, output_dim, (32, 20))  # (batch_size, trg_len)
-output = model(src, trg)
-loss = criterion(output.view(-1, output_dim), trg.view(-1))
+# # Example forward pass
+# src = torch.randint(0, input_dim, (32, 10))  # (batch_size, src_len)
+# trg = torch.randint(0, output_dim, (32, 20))  # (batch_size, trg_len)
+# output = model(src, trg)
+# loss = criterion(output.view(-1, output_dim), trg.view(-1))
 
-print("Output shape:", output.shape)
-print("Loss:", loss.item())
+# print("Output shape:", output.shape)
+# print("Loss:", loss.item())

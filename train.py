@@ -12,6 +12,7 @@ from model.Attentionbased.AttentionbasedSeq2seq import AttnSeq2Seq
 import time
 import torch.nn as nn
 import torch.optim as optim
+import pickle
 
 def unicode_to_ascii(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s)
@@ -126,6 +127,12 @@ batch_size = 32
 
 train_dataloader, val_dataloader, en_vocab, vi_vocab = load_data(path_en, path_vi, batch_size=batch_size, num_examples=num_examples)
 
+with open('en_vocab.pkl', 'wb') as f:
+    pickle.dump(en_vocab, f)
+
+with open('vi_vocab.pkl', 'wb') as f:
+    pickle.dump(vi_vocab, f)
+
 # Tính toán max_length
 max_length_targ = max(max_length(batch[1]) for batch in train_dataloader)
 max_length_inp = max(max_length(batch[0]) for batch in train_dataloader)
@@ -187,6 +194,11 @@ def train_step(inp, targ, model, encoder_optimizer, decoder_optimizer, criterion
     
     return loss.item()
 
+def save_checkpoint(model, checkpoint_path):
+    torch.save({
+        'model_state_dict': model.state_dict(),
+    }, checkpoint_path)
+
 
 # Training loop
 for epoch in range(EPOCHS):
@@ -203,12 +215,7 @@ for epoch in range(EPOCHS):
 
     # Save checkpoint every 5 epochs
     if (epoch + 1) % 5 == 0:
-        torch.save({
-            'encoder': encoder.state_dict(),
-            'decoder': decoder.state_dict(),
-            'encoder_optimizer': encoder_optimizer.state_dict(),
-            'decoder_optimizer': decoder_optimizer.state_dict(),
-        }, f'checkpoint_epoch_{epoch+1}.pt')
+        save_checkpoint(model, f'checkpoint_epoch_{epoch+1}.pt')
 
     print(f'Epoch {epoch + 1} Loss {total_loss / len(train_dataloader):.4f}')
     print(f'Time taken for 1 epoch {time.time() - start:.2f} sec\n')
