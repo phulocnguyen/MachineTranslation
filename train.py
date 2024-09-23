@@ -191,10 +191,6 @@ def main():
     batch_size = 32
 
     train_dataloader, val_dataloader, en_vocab, vi_vocab = load_data(path_en, path_vi, batch_size=batch_size, num_examples=num_examples)
-    max_length_targ = max(max_length(batch[1]) for batch in train_dataloader)
-    max_length_inp = max(max_length(batch[0]) for batch in train_dataloader)
-    BATCH_SIZE = batch_size
-    steps_per_epoch = len(train_dataloader)
     embedding_dim = 256
     units = 1024
     n_layers = 2
@@ -216,4 +212,69 @@ def main():
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='mean')
     training_loop(train_dataloader=train_dataloader, model=model, num_epochs=EPOCHS, optimizer=optimizer, criterion=criterion)
 
-main()
+def evaluate(sentence, model, en_vocab, vi_vocab):
+    # Preprocess the sentence
+    sentence = preprocess_sentence(sentence, 'en')
+    inputs = [en_vocab.word2index.get(word, en_vocab.word2index['<unk>']) for word in sentence.split(' ')]
+    inputs = torch.tensor(inputs).unsqueeze(0)  # Shape: [1, input_length]
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    inputs = inputs.to(device)
+    
+    # Initialize encoder hidden state
+    hidden = [torch.zeros((1, model.encoder.hidden_dim)).to(device) for _ in range(model.encoder.num_layers)]
+
+    # Pass through the encoder
+    encoder_output, (hidden, cell) = model.encoder(inputs)
+    
+    # Set the decoder's initial state
+    decoder_input = torch.tensor([[vi_vocab.word2index['<start>']]]).to(device)
+    
+    result = ''
+
+    for t in range(50):
+        # Pass through the decoder
+        predictions, x, y  = model.decoder(decoder_input, hidden, cell, encoder_output)
+
+        # Get the predicted word
+        predicted_id = predictions.squeeze(0).argmax(1).item()
+
+        # Append the predicted word to the result
+        result += vi_vocab.index2word[predicted_id] + ' '
+
+        # If the model predicts the end token, stop decoding
+        if vi_vocab.index2word[predicted_id] == '<end>':
+            break
+
+        # Use the predicted word as the next input
+        decoder_input = torch.tensor([[predicted_id]]).to(device)
+
+    return result.strip()
+
+path_en = "/Users/phulocnguyen/Documents/Workspace/Machine Translation/dataset/train-en-vi/train.en"
+path_vi = "/Users/phulocnguyen/Documents/Workspace/Machine Translation/dataset/train-en-vi/train.vi"
+num_examples = 100
+batch_size = 32
+
+train_dataloader, val_dataloader, en_vocab, vi_vocab = load_data(path_en, path_vi, batch_size=batch_size, num_examples=num_examples)
+embedding_dim = 256
+units = 1024
+n_layers = 2
+vocab_enc_size = len(en_vocab.word2index)
+vocab_dec_size = len(vi_vocab.word2index)
+
+learning_rate = 1e-3
+EPOCHS = 10
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+encoder = Encoder(vocab_enc_size, embedding_dim, units, n_layers).to(device)
+decoder = Decoder(vocab_dec_size, embedding_dim, units, n_layers).to(device)
+attention = AttentionMechanism(units)
+model = AttnSeq2Seq(encoder, decoder, attention).to(device)
+
+checkpoint = torch.load('/Users/phulocnguyen/Documents/Workspace/Machine Translation/checkpoint_epoch_10.pt')
+model.load_state_dict(checkpoint['model_state_dict'])
+
+# Example usage
+sentence = "I love you"
+result = evaluate(sentence, model, en_vocab, vi_vocab)
+print(result)
