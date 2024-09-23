@@ -119,63 +119,26 @@ def max_length(tensor):
     return max(len(t) for t in tensor)
 
 
-# Sử dụng
-path_en = "/Users/phulocnguyen/Documents/Workspace/Machine Translation/dataset/train-en-vi/train.en"
-path_vi = "/Users/phulocnguyen/Documents/Workspace/Machine Translation/dataset/train-en-vi/train.vi"
-num_examples = 100
-batch_size = 32
+# # Sử dụng
 
-train_dataloader, val_dataloader, en_vocab, vi_vocab = load_data(path_en, path_vi, batch_size=batch_size, num_examples=num_examples)
 
-with open('en_vocab.pkl', 'wb') as f:
-    pickle.dump(en_vocab, f)
+# with open('en_vocab.pkl', 'wb') as f:
+#     pickle.dump(en_vocab, f)
 
-with open('vi_vocab.pkl', 'wb') as f:
-    pickle.dump(vi_vocab, f)
+# with open('vi_vocab.pkl', 'wb') as f:
+#     pickle.dump(vi_vocab, f)
 
-# Tính toán max_length
-max_length_targ = max(max_length(batch[1]) for batch in train_dataloader)
-max_length_inp = max(max_length(batch[0]) for batch in train_dataloader)
+# # Tính toán max_length
 
-print(f"# training data: {len(train_dataloader.dataset)}")
-print(f"# validation data: {len(val_dataloader.dataset)}")
 
-# Cấu hình cho quá trình training
-BUFFER_SIZE = len(train_dataloader.dataset)
-BATCH_SIZE = batch_size
-steps_per_epoch = len(train_dataloader)
-embedding_dim = 256
-units = 1024
-n_layers = 2
-vocab_enc_size = len(en_vocab.word2index)
-vocab_dec_size = len(vi_vocab.word2index)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-learning_rate = 1e-3
-EPOCHS = 10
+# print(f"# training data: {len(train_dataloader.dataset)}")
+# print(f"# validation data: {len(val_dataloader.dataset)}")
+
 
 
 # Initialize models
-encoder = Encoder(vocab_enc_size, embedding_dim, units, n_layers).to(device)
-decoder = Decoder(vocab_dec_size, embedding_dim, units, n_layers).to(device)
-attention = AttentionMechanism(units)
-model = AttnSeq2Seq(encoder, decoder, attention).to(device)
-
-# Optimizers
-encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate)
-decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
-
-# Loss function
-criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='mean')
-
-def loss_function(real, pred):
-    mask = real.ne(0).float()
-    loss_ = nn.CrossEntropyLoss(reduction='none')(pred.view(-1, pred.size(-1)), real.view(-1))
-    loss_ = (loss_ * mask.view(-1)).sum() / mask.sum()
-    return loss_
-
-def train_step(inp, targ, model, encoder_optimizer, decoder_optimizer, criterion, teacher_forcing_ratio=0.5):
-    encoder_optimizer.zero_grad()
-    decoder_optimizer.zero_grad()
+def train_step(inp, targ, model, optimizer, criterion, teacher_forcing_ratio=0.5):
+    optimizer.zero_grad()
     
     # Forward pass qua model (AttnSeq2Seq)
     output = model(inp, targ, teacher_forcing_ratio)
@@ -189,8 +152,7 @@ def train_step(inp, targ, model, encoder_optimizer, decoder_optimizer, criterion
     
     # Backpropagation và update weights
     loss.backward()
-    encoder_optimizer.step()
-    decoder_optimizer.step()
+    optimizer.step()
     
     return loss.item()
 
@@ -199,23 +161,59 @@ def save_checkpoint(model, checkpoint_path):
         'model_state_dict': model.state_dict(),
     }, checkpoint_path)
 
-
+def training_loop(train_dataloader, model, num_epochs, optimizer, criterion):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Training loop
-for epoch in range(EPOCHS):
-    start = time.time()
-    total_loss = 0
+    for epoch in range(num_epochs):
+        start = time.time()
+        total_loss = 0
 
-    for batch, (inp, targ) in enumerate(train_dataloader):
-        inp, targ = inp.to(device), targ.to(device)
-        batch_loss = train_step(inp, targ, model, encoder_optimizer, decoder_optimizer, criterion)
-        total_loss += batch_loss
+        for batch, (inp, targ) in enumerate(train_dataloader):
+            inp, targ = inp.to(device), targ.to(device)
+            batch_loss = train_step(inp, targ, model, optimizer, criterion)
+            total_loss += batch_loss
 
-        if batch % 1 == 0:
-            print(f'Epoch {epoch + 1} Batch {batch} Loss {batch_loss:.4f}')
+            if batch % 1 == 0:
+                print(f'Epoch {epoch + 1} Batch {batch} Loss {batch_loss:.4f}')
 
-    # Save checkpoint every 5 epochs
-    if (epoch + 1) % 5 == 0:
-        save_checkpoint(model, f'checkpoint_epoch_{epoch+1}.pt')
+        # Save checkpoint every 5 epochs
+        if (epoch + 1) % 5 == 0:
+            save_checkpoint(model, f'checkpoint_epoch_{epoch+1}.pt')
 
-    print(f'Epoch {epoch + 1} Loss {total_loss / len(train_dataloader):.4f}')
-    print(f'Time taken for 1 epoch {time.time() - start:.2f} sec\n')
+        print(f'Epoch {epoch + 1} Loss {total_loss / len(train_dataloader):.4f}')
+        print(f'Time taken for 1 epoch {time.time() - start:.2f} sec\n')
+
+def main():
+    # Cấu hình cho quá trình training
+    path_en = "/Users/phulocnguyen/Documents/Workspace/Machine Translation/dataset/train-en-vi/train.en"
+    path_vi = "/Users/phulocnguyen/Documents/Workspace/Machine Translation/dataset/train-en-vi/train.vi"
+    num_examples = 100
+    batch_size = 32
+
+    train_dataloader, val_dataloader, en_vocab, vi_vocab = load_data(path_en, path_vi, batch_size=batch_size, num_examples=num_examples)
+    max_length_targ = max(max_length(batch[1]) for batch in train_dataloader)
+    max_length_inp = max(max_length(batch[0]) for batch in train_dataloader)
+    BATCH_SIZE = batch_size
+    steps_per_epoch = len(train_dataloader)
+    embedding_dim = 256
+    units = 1024
+    n_layers = 2
+    vocab_enc_size = len(en_vocab.word2index)
+    vocab_dec_size = len(vi_vocab.word2index)
+    
+    learning_rate = 1e-3
+    EPOCHS = 10
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    encoder = Encoder(vocab_enc_size, embedding_dim, units, n_layers).to(device)
+    decoder = Decoder(vocab_dec_size, embedding_dim, units, n_layers).to(device)
+    attention = AttentionMechanism(units)
+    model = AttnSeq2Seq(encoder, decoder, attention).to(device)
+
+    # Optimizers
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    # Loss function
+    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='mean')
+    training_loop(train_dataloader=train_dataloader, model=model, num_epochs=EPOCHS, optimizer=optimizer, criterion=criterion)
+
+main()

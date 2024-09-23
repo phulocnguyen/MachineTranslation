@@ -3,80 +3,98 @@ from model.Attentionbased.Encoder import Encoder
 from model.Attentionbased.Decoder import Decoder
 from model.Attentionbased.Attention import AttentionMechanism
 from model.Attentionbased.AttentionbasedSeq2seq import AttnSeq2Seq
-from train import preprocess_sentence
+from train import *
 import pickle
 
-def translate_sentence(model, sentence, en_vocab, vi_vocab, max_length=20, device='cpu'):
+import torch
+
+def preprocess_input_sentence(sentence, vocab):
+    """Preprocesses the input sentence to match the format used during training."""
+    sentence = preprocess_sentence(sentence, lang='en')
+    tensor = torch.tensor([vocab.word2index.get(word, vocab.word2index['<unk>']) for word in sentence.split()])
+    return tensor.unsqueeze(0)  # Add batch dimension
+
+def translate_sentence(model, sentence, en_vocab, vi_vocab, max_length=50):
+    """Translates a single input sentence from English to Vietnamese."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     # Preprocess the input sentence
-    sentence = preprocess_sentence(sentence, 'en')
+    input_tensor = preprocess_input_sentence(sentence, en_vocab).to(device)
     
-    # Chuyển đổi câu đầu vào thành chỉ số (tokenize)
-    inputs = [en_vocab.word2index.get(word, en_vocab.word2index['<unk>']) for word in sentence.split(' ')]
-    inputs = torch.tensor(inputs, dtype=torch.long).unsqueeze(0).to(device)  # Thêm batch dimension
+    # Initialize the decoder's input with the <start> token and set hidden states
+    start_token = torch.tensor([vi_vocab.word2index['<start>']]).unsqueeze(0).to(device)
+    end_token = vi_vocab.word2index['<end>']
     
-    # Bắt đầu inference
-    result = []
-    hidden = model.encoder.init_hidden(1)  # Batch size = 1
-    encoder_output, encoder_hidden = model.encoder(inputs, hidden)
+    hidden_states = None
+    translation = []
     
-    # Bắt đầu với token <start>
-    decoder_input = torch.tensor([vi_vocab.word2index['<start>']], dtype=torch.long).to(device)
-    decoder_hidden = encoder_hidden
+    # Run through the encoder
+    encoder_output, hidden_states = model.encoder(input_tensor)
     
+    # Start decoding
+    decoder_input = start_token
+    attention_weights = []
+
     for t in range(max_length):
-        decoder_output, decoder_hidden, _ = model.decoder(decoder_input, decoder_hidden, encoder_output)
-        _, topi = decoder_output.data.topk(1)  # Chọn từ có xác suất cao nhất
+        # Run one step through the decoder
+        decoder_output, hidden_states, attn_weights = model.decoder(
+            decoder_input, hidden_states, encoder_output)  # Pass encoder_output here!
         
-        if topi.item() == vi_vocab.word2index['<end>']:
+        attention_weights.append(attn_weights)
+        
+        # Select the word with the highest probability
+        predicted_token = decoder_output.argmax(dim=1).item()
+
+        # Stop if <end> token is reached
+        if predicted_token == end_token:
             break
         
-        result.append(topi.item())
-        decoder_input = topi.squeeze().detach()
-    
-    translated_sentence = ' '.join([vi_vocab.index2word[idx] for idx in result])
+        # Append the predicted word to the translation
+        translation.append(predicted_token)
+        
+        # The predicted token becomes the input for the next step
+        decoder_input = torch.tensor([[predicted_token]]).to(device)
+
+    # Convert the token indices back to words
+    translated_sentence = ' '.join([vi_vocab.index2word[tok] for tok in translation])
     return translated_sentence
 
-# Function to load the model from a checkpoint
-def load_checkpoint(checkpoint_path, encoder, decoder, encoder_optimizer=None, decoder_optimizer=None):
-    checkpoint = torch.load(checkpoint_path)
+
+def infer():
+    # Load your trained model and vocabularies
+    path_en = "/Users/phulocnguyen/Documents/Workspace/Machine Translation/dataset/train-en-vi/train.en"
+    path_vi = "/Users/phulocnguyen/Documents/Workspace/Machine Translation/dataset/train-en-vi/train.vi"
+    num_examples = 100
+    batch_size = 32
     
-    # Load model weights
-    encoder.load_state_dict(checkpoint['encoder'])
-    decoder.load_state_dict(checkpoint['decoder'])
+    # Recreate data and vocab
+    _, _, en_vocab, vi_vocab = load_data(path_en, path_vi, batch_size=batch_size, num_examples=num_examples)
     
-    # Optionally load the optimizer states if you want to resume training
-    if encoder_optimizer:
-        encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer'])
-    if decoder_optimizer:
-        decoder_optimizer.load_state_dict(checkpoint['decoder_optimizer'])
+    embedding_dim = 256
+    units = 1024
+    n_layers = 2
+    vocab_enc_size = len(en_vocab.word2index)
+    vocab_dec_size = len(vi_vocab.word2index)
     
-    print(f"Checkpoint loaded from '{checkpoint_path}'")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    encoder = Encoder(vocab_enc_size, embedding_dim, units, n_layers).to(device)
+    decoder = Decoder(vocab_dec_size, embedding_dim, units, n_layers).to(device)
+    attention = AttentionMechanism(units)
+    model = AttnSeq2Seq(encoder, decoder, attention).to(device)
+    
+    # Load the model checkpoint
+    checkpoint = torch.load('checkpoint_epoch_10.pt', map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    # Set the model to evaluation mode
+    model.eval()
 
-with open('en_vocab.pkl', 'rb') as f:
-    en_vocab = pickle.load(f)
+    # Translate an example sentence
+    input_sentence = "How are you?"
+    translated_sentence = translate_sentence(model, input_sentence, en_vocab, vi_vocab)
+    
+    print(f"Input: {input_sentence}")
+    print(f"Translated: {translated_sentence}")
 
-with open('vi_vocab.pkl', 'rb') as f:
-    vi_vocab = pickle.load(f)
-
-# Khởi tạo các thông số của mô hình
-vocab_enc_size = len(en_vocab.word2index)  # Kích thước từ điển tiếng Anh
-embedding_dim = 256                        # Kích thước nhúng
-units = 1024                               # Số lượng units trong các lớp ẩn
-n_layers = 2                               # Số lượng tầng của encoder/decoder
-vocab_dec_size = len(vi_vocab.word2index)  # Kích thước từ điển tiếng Việt
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Khởi tạo mô hình encoder, decoder và attention
-encoder = Encoder(vocab_enc_size, embedding_dim, units, n_layers).to(device)
-decoder = Decoder(vocab_dec_size, embedding_dim, units, n_layers).to(device)
-attention = AttentionMechanism(units)
-model = AttnSeq2Seq(encoder, decoder, attention).to(device)
-
-# Load checkpoint
-checkpoint_path = 'checkpoint_epoch_10.pt'
-load_checkpoint(checkpoint_path, encoder, decoder)
-
-# Dịch câu mới
-sentence = "I love programming."
-translated_sentence = translate_sentence(model, sentence, en_vocab, vi_vocab, device=device)
-print(f"Translated: {translated_sentence}")
+# Run the inference
+infer()
